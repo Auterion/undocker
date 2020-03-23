@@ -57,27 +57,6 @@ def parse_args():
     return p.parse_args()
 
 
-def find_layers(img, id):
-    with closing(img.extractfile('%s/json' % id)) as fd:
-        # This is an ugly hack for Python 2.
-        if not hasattr(fd, 'readable'):
-            fd.readable = lambda: True
-            fd.seekable = lambda: True
-            fd.writable = lambda: False
-        info = json.load(io.TextIOWrapper(fd, encoding='utf-8'))
-
-    LOG.debug('layer = %s', id)
-    for k in ['os', 'architecture', 'author', 'created']:
-        if k in info:
-            LOG.debug('%s = %s', k, info[k])
-
-    yield id
-    if 'parent' in info:
-        pid = info['parent']
-        for layer in find_layers(img, pid):
-            yield layer
-
-
 def parse_image_spec(image):
     try:
         path, base = image.rsplit('/', 1)
@@ -105,8 +84,8 @@ def main():
             fd.write(data)
         fd.seek(0)
         with tarfile.TarFile(fileobj=fd) as img:
-            repos = img.extractfile('repositories')
-            repos = json.loads(repos.read().decode('utf-8'))
+            manifest = img.extractfile('manifest.json')
+            manifest = json.loads(manifest.read().decode('utf-8'))[0]
 
             if args.list:
                 for name, tags in repos.items():
@@ -115,41 +94,16 @@ def main():
                         ' '.join(tags)))
                 sys.exit(0)
 
-            if args.image:
-                name, tag = parse_image_spec(args.image)
-            elif len(repos) == 1:
-                name = list(repos.keys())[0]
-                tag = list(repos[name].keys())[0]
-            else:
-                LOG.error('No image name specified and multiple '
-                          'images contained in archive')
-                sys.exit(1)
-
-            try:
-                top = repos[name][tag]
-            except KeyError:
-                LOG.error('failed to find image %s with tag %s',
-                          name,
-                          tag)
-                sys.exit(1)
-
-            LOG.info('extracting image %s (%s)', name, top)
-            layers = list(find_layers(img, top))
-
-            if args.layers:
-                print('\n'.join(reversed(layers)))
-                sys.exit(0)
-
             if not os.path.isdir(args.output):
                 os.mkdir(args.output)
 
-            for id in reversed(layers):
+            for layer in manifest['Layers']:
                 if args.layer and id not in args.layer:
                     continue
 
-                LOG.info('extracting layer %s', id)
+                LOG.info('extracting layer %s', layer)
                 with tarfile.TarFile(
-                        fileobj=img.extractfile('%s/layer.tar' % id),
+                        fileobj=img.extractfile(layer),
                         errorlevel=(0 if args.ignore_errors else 1)) as layer:
                     layer.extractall(path=args.output)
                     if not args.no_whiteouts:
