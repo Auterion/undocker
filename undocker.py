@@ -11,6 +11,7 @@ import os
 import shutil
 import sys
 import tarfile
+import gzip
 import tempfile
 
 from contextlib import closing
@@ -102,13 +103,24 @@ def main():
                     continue
 
                 LOG.info('extracting layer %s', layer)
-                with tarfile.TarFile(
-                        fileobj=img.extractfile(layer),
-                        errorlevel=(0 if args.ignore_errors else 1)) as layer:
-                    layer.extractall(path=args.output)
+                layer_obj = img.extractfile(layer)
+
+                # test if gzip
+                pos = layer_obj.tell()
+                head_bits = layer_obj.read(2)
+                layer_obj.seek(pos) # reset back to original position
+                isGzip = (head_bits == b'\x1f\x8b')
+
+                if isGzip:
+                    tar = tarfile.open(fileobj=gzip.open(layer_obj), mode='r:')
+                else:
+                    tar = tarfile.open(fileobj=layer_obj, mode='r:')
+
+                with tar:
+                    tar.extractall(path=args.output)
                     if not args.no_whiteouts:
                         LOG.info('processing whiteouts')
-                        for member in layer.getmembers():
+                        for member in tar.getmembers():
                             path = os.path.join(args.output, member.path)
                             if path.startswith('.wh.') or '/.wh.' in path:
                                 if path.startswith('.wh.'):
