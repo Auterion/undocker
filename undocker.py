@@ -117,7 +117,7 @@ def main():
                     tar = tarfile.open(fileobj=layer_obj, mode='r:')
 
                 with tar:
-                    tar.extractall(path=args.output)
+                    tar.extractall(path=args.output, filter='fully_trusted')
                     if not args.no_whiteouts:
                         LOG.info('processing whiteouts')
                         for member in tar.getmembers():
